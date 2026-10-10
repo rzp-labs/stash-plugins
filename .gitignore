@@ -4,6 +4,7 @@
 **/.pytest_cache
 **/node_modules
 **/venv/
+**/.venv/
 CLAUDE.md
 scripts/*
 !scripts/duplicate-performer-finder/

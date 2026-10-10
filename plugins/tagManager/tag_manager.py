@@ -528,7 +528,7 @@ def handle_sync_scene_tags(server_connection):
         server_connection: Stash server connection info
 
     Returns:
-        Dict with sync results, or with `error` if the run stopped or no scene synced
+        Dict with sync results, or with `error` and `partial` if any scene failed
     """
     from stashdb_scene_sync import sync_scene_tags
 
@@ -590,10 +590,14 @@ def handle_sync_scene_tags(server_connection):
         except sqlite3.Error as e:
             log.LogError(f"Could not save the scene sync history: {e}")
 
-    result = {"dry_run": dry_run, **stats.counts(), "by_endpoint": stats.by_endpoint}
+    result = {"dry_run": dry_run, **stats.counts(), "by_endpoint": stats.by_endpoint,
+              "partial": stats.partial}
     error = stats.error
     if not error and stats.processed == 0 and stats.errors > 0:
         error = f"All {stats.errors} scenes failed to sync. See the Stash log for details."
+    if not error and stats.errors > 0:
+        error = f"Sync incomplete: {stats.errors} scenes failed; {stats.processed} synced successfully. " \
+                "See the Stash log for details."
     if error:
         return {"error": error, **result}
     return {"success": True, **result}

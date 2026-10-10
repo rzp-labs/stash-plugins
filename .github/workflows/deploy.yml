@@ -1,38 +1,39 @@
-name: Deploy repository to Github Pages
+name: Publish reviewed Tag Manager release
 
 on:
   push:
-    branches: [main]
+    tags: ['tagManager-v*']
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# One publish at a time. A queued run waits rather than cancelling one in progress.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  # A push to main publishes to every user, so nothing ships unless tests pass
   test:
+    if: github.repository == 'rzp-labs/stash-plugins'
     uses: ./.github/workflows/test.yml
 
   build:
     needs: test
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          # build_site.sh reads each plugin's version and date from git history
-          fetch-depth: "0"
-      - run: ./build_site.sh _site/stable
-      # develop has always published the same build as stable; keep its URL working
+          fetch-depth: '0'
+      - name: Validate release tag
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version: //p' plugins/tagManager/tagManager.yml)
+          test "$GITHUB_REF_NAME" = "tagManager-v$version"
+          git merge-base --is-ancestor HEAD origin/main
+      - run: bash build_site.sh _site/stable
+      # Preserve upstream's stable/develop feed layout.
       - run: cp -r _site/stable _site/develop
       - uses: actions/upload-pages-artifact@v3
 
@@ -41,6 +42,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     needs: build
     steps:
       - name: Deploy to GitHub Pages

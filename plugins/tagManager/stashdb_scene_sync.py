@@ -52,6 +52,11 @@ class SyncStats:
     error: Optional[str] = None  # Why the run stopped or failed, if it did
     by_endpoint: dict = field(default_factory=dict)  # {endpoint: {"name", **counts()}}
 
+    @property
+    def partial(self):
+        """The run stopped or some scenes failed, even if others were updated."""
+        return self.error is not None or self.errors > 0
+
     def counts(self):
         """The counters as a dict, keyed as the plugin reports them."""
         return {
@@ -278,9 +283,13 @@ def sync_scene_tags(client, boxes, settings, history=None):
             box = _make_box(box_config)
             try:
                 _sync_box(run, box, box_stats, limit, _progress(index, len(boxes)))
+            except SyncAborted as e:
+                box_stats.error = str(e)
+                raise
             finally:
                 stats.add(box_stats)
-                stats.by_endpoint[box.endpoint] = {"name": box.name, **box_stats.counts()}
+                stats.by_endpoint[box.endpoint] = {"name": box.name, **box_stats.counts(),
+                                                  "partial": box_stats.partial}
                 _log_box_summary(box.name, box_stats, dry_run)
 
     except SyncAborted as e:
@@ -441,10 +450,10 @@ def _process_pass_one(run, box, scenes, stats, retry_queue, progress):
                     box.endpoint, box.api_key, fingerprint_batches, box.rate_limiter
                 ) or []
             except StashDBAPIError as e:
+                stats.errors += len(batch_scenes)
                 if e.is_auth_error:
                     raise _aborted_by(box, e) from e
                 log.LogError(f"{box.name}: fingerprint lookup failed for {len(batch_scenes)} scenes: {e}")
-                stats.errors += len(batch_scenes)
             else:
                 for i, scene in enumerate(batch_scenes):
                     expected_id = _get_scene_stashdb_id(scene, box.endpoint)
@@ -478,10 +487,10 @@ def _process_pass_two(run, box, retry_queue, stats, progress):
         try:
             remote_scene = find_scene_by_id(box.endpoint, box.api_key, remote_id, box.rate_limiter)
         except StashDBAPIError as e:
+            stats.errors += 1
             if e.is_auth_error:
                 raise _aborted_by(box, e) from e
             log.LogError(f"Scene {scene.get('id')}: {box.name} lookup of {remote_id} failed: {e}")
-            stats.errors += 1
             continue
 
         if not remote_scene:
@@ -523,7 +532,8 @@ def _log_summary(stats, dry_run):
     """Log final summary statistics."""
     prefix = "[DRY RUN] " if dry_run else ""
 
-    log.LogInfo(f"{prefix}Sync {'stopped' if stats.error else 'complete'}!")
+    status = "stopped" if stats.error else "incomplete" if stats.partial else "complete"
+    log.LogInfo(f"{prefix}Sync {status}!")
     log.LogInfo(f"  Total scenes: {stats.total_scenes}")
     log.LogInfo(f"  Processed: {stats.processed}")
     log.LogInfo(f"  {'Would update' if dry_run else 'Updated'}: {stats.updated}")

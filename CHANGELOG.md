@@ -46,6 +46,11 @@ Changes to each plugin, newest first. Stash shows the installed and available ve
 
 ## Tag Manager
 
+### 0.7.1
+- Invalid UTF-8 stash-box responses are strictly rejected, retried within the existing bounded request budget, and reported as typed API failures with safe response metadata. Corrupt text is never repaired or applied.
+- Scene Tag Sync counts failed batches and individual lookups, continues with other scenes, and reports incomplete results when any scene failed while preserving successful updates and their sync history.
+- The rzp-labs feed ships only Tag Manager and includes the upstream MIT notice in its reproducible package.
+
 ### 0.7.0
 - Python 3.9+ with no required packages. `thefuzz` is optional. `stashapp-tools` is no longer used (fixes #129).
 - A full StashDB tag fetch takes about 5 seconds instead of 30-40+. Stash-box errors show in the UI, and a rejected API key (HTTP 401/403) says so. Requests send a `User-Agent`, which fixes HTTP 403 from ThePornDB and JAVStash. ThePornDB tag fetches now get every tag instead of the first 100.

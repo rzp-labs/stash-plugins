@@ -28,9 +28,9 @@ For detailed usage instructions, see the [User Guide](USERGUIDE.md).
 **Option A: Via Stash Plugin Source (Recommended)**
 1. In Stash, go to **Settings → Plugins → Available Plugins**
 2. Click **Add Source**
-3. Enter URL: `https://carrotwaxr.github.io/stash-plugins/stable/index.yml`
+3. Enter URL: `https://rzp-labs.github.io/stash-plugins/stable/index.yml` (available after the first reviewed release)
 4. Click **Reload**
-5. Find "Tag Manager" under "Carrot Waxxer" and click Install
+5. Find "Tag Manager" under the source you added and click Install
 
 **Option B: Manual Installation**
 1. Download or clone this repository
@@ -142,6 +142,8 @@ The first fetch from StashDB downloads 20,000+ tags in pages of 1,000 and takes 
 - Ensure scenes have stash-box IDs (use Stash's Tagger first)
 - Start with "Dry Run" enabled to preview changes
 - An error naming a stash-box and HTTP 401 or 403 means that stash-box rejected the API key. Check it in Settings → Metadata Providers.
+- Invalid UTF-8 responses are retried up to three times (four attempts total, sharing the HTTP/connection retry budget). If retries fail, affected scenes count as errors and other scenes continue. The result reports `partial: true` and an incomplete-sync error; successful updates and their history remain saved.
+- Decode diagnostics include the HTTP status, received byte count, normalized content type/encoding/length, invalid byte offsets, and whether the body has a gzip signature. They exclude response text, arbitrary headers, request variables, and API keys. These fields may help diagnose a future failure; the cause of the earlier bad response remains unknown.
 - If tags you removed from scenes keep coming back, or the history file can't be read, run the "Reset Scene Tag Sync History" task
 - Check Stash logs for detailed error messages
 
@@ -207,6 +209,11 @@ Caches and sync history live in Stash's config folder, not the plugin folder, so
 The `cache/` folder inside the plugin folder from older versions is no longer used. You can delete it.
 
 ## Changelog
+
+### 0.7.1
+- Strict UTF-8 decoding retries within the existing bounded budget and raises a typed API failure on exhaustion; corrupt text is never repaired or applied.
+- Failed scene batches and individual lookups count as errors, other scenes continue, and the task reports an incomplete result while preserving successful updates and sync history.
+- The rzp-labs feed publishes only Tag Manager, with the upstream MIT notice included in the reproducible zip.
 
 ### v0.7.0
 

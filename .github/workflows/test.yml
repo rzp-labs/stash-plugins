@@ -1,8 +1,12 @@
-name: Tests
+name: Tag Manager checks
 
 on:
   pull_request:
-  # deploy.yml calls this before publishing
+    paths:
+      - 'plugins/tagManager/**'
+      - '.github/**'
+      - 'build_site.sh'
+      - 'LICENSE'
   workflow_call:
   workflow_dispatch:
 
@@ -10,66 +14,37 @@ permissions:
   contents: read
 
 jobs:
-  pytest:
-    name: pytest (${{ matrix.dir }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        dir:
-          - plugins/mcMetadata
-          - plugins/missingScenes
-          - plugins/performerImageSearch
-          - plugins/sceneMatcher
-          - plugins/tagManager
-          - scripts/scene-file-deduper
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest pyyaml
-          if [ -f "${{ matrix.dir }}/requirements.txt" ]; then
-            pip install -r "${{ matrix.dir }}/requirements.txt"
-          fi
-      # Live-site tests (-m network) and live Stash tests (STASH_PLUGINS_INTEGRATION)
-      # are excluded by pytest.ini and the tests themselves.
-      - name: Run tests
-        working-directory: ${{ matrix.dir }}
-        run: python -m pytest
-
-  javascript:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Syntax-check plugin JavaScript
-        run: find plugins -name '*.js' -not -path '*/tests/*' -not -path '*/node_modules/*' -print0 | xargs -0 -n1 -t node --check
-      - name: JS tests
-        run: |
-          status=0
-          for f in plugins/*/tests/test_*.js; do
-            echo "::group::$f"
-            node "$f" || { echo "::error file=$f::failed"; status=1; }
-            echo "::endgroup::"
-          done
-          exit $status
-
-  manifests:
+  verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - run: pip install pyyaml
-      - name: Lint plugin manifests
-        run: python .github/scripts/lint_manifests.py
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: python -m pip install -r .github/requirements-tagmanager-tests.txt
+      - name: Offline Python tests
+        working-directory: plugins/tagManager
+        env:
+          STASH_PLUGINS_INTEGRATION: '0'
+        run: python -m pytest -q
+      - name: JavaScript syntax and offline tests
+        run: |
+          node --check plugins/tagManager/tag-manager.js
+          for file in plugins/tagManager/tests/test_*.js; do
+            node "$file" || exit 1
+          done
+      - name: Manifests and reproducible package
+        run: |
+          python .github/scripts/lint_manifests.py
+          bash build_site.sh "$RUNNER_TEMP/package-a"
+          bash build_site.sh "$RUNNER_TEMP/package-b"
+          cmp "$RUNNER_TEMP/package-a/tagManager.zip" "$RUNNER_TEMP/package-b/tagManager.zip"
+          cmp "$RUNNER_TEMP/package-a/index.yml" "$RUNNER_TEMP/package-b/index.yml"
+          python .github/scripts/check_tagmanager_package.py "$RUNNER_TEMP/package-a"
