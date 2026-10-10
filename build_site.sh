@@ -42,7 +42,11 @@ buildPlugin()
 
     echo "Processing $plugin_id"
 
-    mapfile -t spec < <(echo "$dir"; excludes "$dir")
+    # The upstream MIT notice is part of every maintained plugin package.
+    spec=("$dir" "LICENSE")
+    while IFS= read -r exclude; do
+        spec+=("$exclude")
+    done < <(excludes "$dir")
 
     # version and date come from the last commit that touched shipped files,
     # so test-only commits don't offer users an update
@@ -52,11 +56,22 @@ buildPlugin()
 
     # create the zip file from the committed tree with fixed timestamps,
     # permissions and file order, so it only changes when its content does
-    zipfile=$(realpath "$outdir/$plugin_id.zip")
+    zipfile="$(cd "$outdir" && pwd)/$plugin_id.zip"
     staging=$(mktemp -d)
     git archive --format=tar HEAD -- "${spec[@]}" | tar -x -C "$staging"
+    mv "$staging/LICENSE" "$staging/$dir/LICENSE"
     chmod -R u=rwX,go=rX "$staging"
-    find "$staging" -exec touch -h -d "@$epoch" {} +
+    # Python's timestamp API works on both macOS and the Linux Pages runner.
+    python3 - "$staging" "$epoch" <<'PY'
+import os
+import sys
+
+root, epoch = sys.argv[1], int(sys.argv[2])
+for directory, dirs, files in os.walk(root):
+    for name in dirs + files:
+        os.utime(os.path.join(directory, name), (epoch, epoch), follow_symlinks=False)
+os.utime(root, (epoch, epoch))
+PY
     (cd "$staging/$dir" && find . -type f | LC_ALL=C sort | TZ=UTC0 zip -X -D -q "$zipfile" -@)
     rm -rf "$staging"
 
@@ -87,7 +102,8 @@ buildPlugin()
     echo "" >> "$outdir"/index.yml
 }
 
-# only top-level manifests: plugins/<id>/<id>.yml
-find ./plugins -mindepth 2 -maxdepth 2 -name '*.yml' | LC_ALL=C sort | while read -r file; do
+# This fork maintains only Tag Manager. Keep other plugins and their history
+# in the source tree, but never advertise or package them in this feed.
+for file in ./plugins/tagManager/tagManager.yml; do
     buildPlugin "$file"
 done

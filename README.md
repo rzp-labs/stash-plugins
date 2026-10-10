@@ -1,6 +1,8 @@
-# Carrot Waxxer's Stash Plugins
+# rzp-labs Stash Plugins
 
 Plugins for extending [Stash](https://github.com/stashapp/stash), the open-source media organizer.
+
+This public fork preserves [carrotwaxr/stash-plugins](https://github.com/carrotwaxr/stash-plugins) history and licenses. It maintains and publishes **Tag Manager only**. The other plugins below are retained as upstream source references and are not offered by this fork's feed. See [MAINTENANCE.md](MAINTENANCE.md) for release and review details.
 
 ## Installation
 
@@ -8,9 +10,9 @@ Add this repository as a plugin source in Stash:
 
 1. Go to **Settings → Plugins → Available Plugins**
 2. Click **Add Source**
-3. Enter URL: `https://carrotwaxr.github.io/stash-plugins/stable/index.yml`
+3. Enter URL: `https://rzp-labs.github.io/stash-plugins/stable/index.yml` (available after the first reviewed release)
 4. Click **Reload**
-5. Browse available plugins under "Carrot Waxxer"
+5. Find Tag Manager under the source you added
 
 Stash shows each plugin's current version in that list. What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -118,14 +120,14 @@ Manage studio hierarchy with visual tree editing.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/carrotwaxr/stash-plugins/issues)
+- **Issues**: [GitHub Issues](https://github.com/rzp-labs/stash-plugins/issues)
 - **Community**: [Stash Discord](https://discord.gg/stashapp) | [Stash Discourse](https://discourse.stashapp.cc/)
 
 ## Publishing
 
-Every push to `main` publishes. The Deploy workflow runs the tests, then `build_site.sh` builds the plugin index and zips and publishes them to GitHub Pages.
+An explicit `tagManager-v<manifest version>` release tag on a reviewed `main` commit publishes. Branch pushes and PRs do not publish. The Deploy workflow runs the Tag Manager checks, then reuses `build_site.sh` and GitHub Pages to publish only Tag Manager.
 
-- Zips are built from the committed tree and hold only runtime files. Tests, samples and `.env` files stay in the repo.
+- Zips are built from the committed tree and include the upstream MIT license. Tests, samples, local state and `.env` files stay in the repo.
 - A plugin's index version is `<manifest version>-<sha>`, where the sha is the last commit that changed a shipped file. Test-only commits don't offer users an update.
 - The zips are reproducible, so rebuilding the same commit produces the same sha256.
 

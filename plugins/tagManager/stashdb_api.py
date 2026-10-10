@@ -112,6 +112,43 @@ class StashDBAPIError(Exception):
         return False
 
 
+class StashDBResponseError(StashDBAPIError):
+    """An unusable response after retries, with payload-free diagnostics."""
+
+    def __init__(self, message, response_metadata):
+        super().__init__(message, status_code=response_metadata["status"], retryable=True)
+        self.response_metadata = response_metadata
+
+
+def _decode_failure_metadata(response, body, error):
+    """Only normalized, allow-listed fields; never body bytes or arbitrary headers."""
+    headers = getattr(response, "headers", None) or {}
+    content_type = headers.get("Content-Type")
+    if isinstance(content_type, str):
+        content_type = content_type.split(";", 1)[0].strip().lower()
+    if content_type not in {"application/json", "application/graphql-response+json",
+                            "text/html", "text/plain", "application/octet-stream"}:
+        content_type = "other" if content_type else "missing"
+    encoding = headers.get("Content-Encoding", "identity")
+    if isinstance(encoding, str):
+        encoding = encoding.strip().lower()
+    if encoding not in {"identity", "gzip", "deflate", "br"}:
+        encoding = "other"
+    length = headers.get("Content-Length")
+    length = int(length) if isinstance(length, str) and re.fullmatch(r"[0-9]{1,20}", length) else None
+    status = getattr(response, "status", None)
+    return {
+        "status": status if type(status) is int else None,
+        "bytes": len(body),
+        "content_type": content_type,
+        "content_encoding": encoding,
+        "content_length": length,
+        "decode_start": error.start,
+        "decode_end": error.end,
+        "gzip_magic": body.startswith(b"\x1f\x8b"),
+    }
+
+
 def graphql_request(url, query, variables=None, api_key=None, timeout=30):
     """
     Make a GraphQL request to StashDB.
@@ -129,12 +166,13 @@ def graphql_request(url, query, variables=None, api_key=None, timeout=30):
     Raises:
         StashDBAPIError: On request failure
     """
-    log.LogTrace(f"GraphQL request to {url}")
-    log.LogTrace(f"Variables: {json.dumps(variables) if variables else 'None'}")
+    # URLs and variables can contain credentials or library fingerprints.
+    log.LogTrace("GraphQL request")
 
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "Accept-Encoding": "identity",
         "User-Agent": USER_AGENT,
     }
 
@@ -158,8 +196,9 @@ def graphql_request(url, query, variables=None, api_key=None, timeout=30):
         try:
             log.LogTrace(f"Request attempt {attempt + 1}/{max_retries + 1}")
             with urllib.request.urlopen(req, timeout=timeout, context=SSL_CONTEXT) as response:
-                response_data = response.read().decode("utf-8")
-                log.LogTrace(f"Response received: {len(response_data)} bytes")
+                response_bytes = response.read()
+                log.LogTrace(f"Response received: {len(response_bytes)} bytes")
+                response_data = response_bytes.decode("utf-8")
                 result = json.loads(response_data)
 
                 if "errors" in result:
@@ -173,6 +212,21 @@ def graphql_request(url, query, variables=None, api_key=None, timeout=30):
 
                 return result.get("data")
 
+        except UnicodeDecodeError as e:
+            # These are read-only queries. Retry an unusable response within the
+            # same budget as HTTP/connection failures; never repair corrupt text.
+            metadata = _decode_failure_metadata(response, response_bytes, e)
+            detail = json.dumps(metadata, sort_keys=True)
+            if attempt < max_retries:
+                log.LogWarning(f"Invalid UTF-8 response ({detail}), retrying in {delay:.1f}s "
+                               f"(attempt {attempt + 1}/{max_retries + 1})")
+                time.sleep(delay)
+                delay = min(delay * DEFAULT_CONFIG["retry_backoff_multiplier"], DEFAULT_CONFIG["max_retry_delay"])
+                continue
+            message = f"Invalid UTF-8 response after {attempt + 1} attempts ({detail})"
+            log.LogError(message)
+            raise StashDBResponseError(message, metadata) from None
+
         except urllib.error.HTTPError as e:
             log.LogDebug(f"HTTP error {e.code}: {e.reason}")
             if e.code in RETRYABLE_STATUS_CODES and attempt < max_retries:
@@ -183,7 +237,7 @@ def graphql_request(url, query, variables=None, api_key=None, timeout=30):
 
             error_body = ""
             try:
-                error_body = e.read().decode("utf-8", errors="replace")[:500]
+                error_body = e.read().decode("utf-8")[:500]
                 log.LogDebug(f"Error response body: {error_body}")
             except Exception:
                 pass
